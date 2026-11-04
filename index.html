@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Kundali Banaune — Free Vedic (North Indian) Birth Chart Generator</title>
-<meta name="description" content="Authentic Vedic astrology kundali generator: Swiss Ephemeris, Lahiri ayanamsa, Whole-Sign houses, Vimshottari dasha." />
+<title>Kundali Banaune — Free Vedic Birth Chart &amp; Astrology Dashboard</title>
+<meta name="description" content="Authentic Vedic astrology kundali dashboard: Swiss Ephemeris, Lahiri/Raman/KP ayanamsa, North & South Indian charts, D-9 Navamsa, Vimshottari Dasha, Mangal / Kaal Sarp / Sade Sati reports." />
 
 <!-- Tailwind CSS via CDN (production note: replace with a compiled build, see DEPLOYMENT.md) -->
 <script src="https://cdn.tailwindcss.com"></script>
@@ -37,6 +37,23 @@
   .chart-card    { background:#fffdf7; }
   details > summary { list-style:none; cursor:pointer; }
   details > summary::-webkit-details-marker { display:none; }
+
+  /* ---------- tabbed dashboard ---------- */
+  .tab-btn { border-bottom:3px solid transparent; color:#6b7280; }
+  .tab-btn[aria-selected="true"] { color:#6b1f1f; border-color:#e97e10; font-weight:700; }
+  .tab-panel[hidden] { display:none; }
+
+  /* ---------- South Indian chart cells ---------- */
+  .si-cell   { stroke:#6b1f1f; stroke-width:1.4; fill:#ffffff; }
+  .si-alt    { fill:#fbf3e4; }
+  .si-signnum{ font: 700 11px system-ui, sans-serif; fill:#6b7280; }
+  .si-planet { font: 600 12px system-ui, sans-serif; fill:#111827; }
+
+  /* ---------- dasha timeline bars ---------- */
+  .dasha-bar { height:8px; border-radius:9999px; background:#f3e8d2; overflow:hidden; }
+  .dasha-fill{ height:100%; background:linear-gradient(90deg,#e97e10,#6b1f1f); }
+
+  @media print { .no-print { display:none !important; } }
 </style>
 </head>
 
@@ -45,12 +62,12 @@
 <!-- ======================= Header ======================= -->
 <header class="bg-gradient-to-r from-deepmaroon to-saffron text-white shadow-lg">
   <div class="max-w-6xl mx-auto px-4 py-8 flex items-center gap-4">
-    <div class="text-4xl" aria-hidden="true">🕉️</div>
+    <div class="text-4xl" aria-hidden="true">&#2384;</div>
     <div>
       <h1 class="font-display text-2xl sm:text-3xl font-bold tracking-wide">Kundali Banaune</h1>
       <p class="text-sm sm:text-base text-orange-100">
-        Authentic Vedic (Jyotish) birth chart — NASA JPL Swiss Ephemeris · Lahiri Ayanamsa ·
-        Whole-Sign houses · Vimshottari Dasha
+        Professional Vedic (Jyotish) dashboard — NASA JPL Swiss Ephemeris · Lahiri / Raman / KP Ayanamsa ·
+        D-1 &amp; D-9 Charts · Vimshottari Dasha · Dosha Reports
       </p>
     </div>
   </div>
@@ -66,6 +83,28 @@
     <div id="api-banner" class="hidden mb-4 rounded-lg bg-red-50 border border-red-200 text-red-800 text-sm px-4 py-3"></div>
 
     <form id="kundali-form" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+
+      <label class="block">
+        <span class="text-sm font-medium text-gray-700">Full Name</span>
+        <input type="text" name="fullname" maxlength="120" placeholder="e.g. Asha Rao" autocomplete="name"
+               class="mt-1 w-full rounded-lg border-gray-300 border px-3 py-2 focus:ring-2 focus:ring-saffron outline-none" />
+      </label>
+
+      <fieldset class="mt-1">
+        <legend class="text-sm font-medium text-gray-700">Gender</legend>
+        <div class="flex gap-4 mt-1">
+          <label class="inline-flex items-center gap-1.5 text-sm">
+            <input type="radio" name="gender" value="male" class="accent-saffron" /> Male
+          </label>
+          <label class="inline-flex items-center gap-1.5 text-sm">
+            <input type="radio" name="gender" value="female" class="accent-saffron" /> Female
+          </label>
+          <label class="inline-flex items-center gap-1.5 text-sm">
+            <input type="radio" name="gender" value="other" class="accent-saffron" /> Other
+          </label>
+        </div>
+      </fieldset>
+
       <label class="block">
         <span class="text-sm font-medium text-gray-700">Date of Birth *</span>
         <input required type="date" name="dob" value="1990-05-15"
@@ -78,12 +117,20 @@
                class="mt-1 w-full rounded-lg border-gray-300 border px-3 py-2 focus:ring-2 focus:ring-saffron outline-none" />
       </label>
 
+      <!-- City search with datalist autocomplete + manual coordinate helper -->
       <label class="block">
-        <span class="text-sm font-medium text-gray-700">Birth City / Place</span>
-        <select name="city" id="city-select"
-                class="mt-1 w-full rounded-lg border-gray-300 border px-3 py-2 bg-white focus:ring-2 focus:ring-saffron outline-none">
-          <option value="">— manual coordinates below —</option>
-        </select>
+        <span class="text-sm font-medium text-gray-700">Birth City / Place
+          <span class="text-xs text-gray-400 font-normal">(type to search)</span></span>
+        <input type="text" name="city" id="city-input" list="city-list"
+               placeholder="Search: Delhi, Mumbai, London…" autocomplete="off"
+               class="mt-1 w-full rounded-lg border-gray-300 border px-3 py-2 focus:ring-2 focus:ring-saffron outline-none" />
+        <datalist id="city-list"></datalist>
+      </label>
+
+      <label class="block">
+        <span class="text-sm font-medium text-gray-700">Timezone (UTC offset) *</span>
+        <select required name="tz" id="tz-select"
+                class="mt-1 w-full rounded-lg border-gray-300 border px-3 py-2 bg-white focus:ring-2 focus:ring-saffron outline-none"></select>
       </label>
 
       <label class="block">
@@ -98,78 +145,182 @@
                class="mt-1 w-full rounded-lg border-gray-300 border px-3 py-2 focus:ring-2 focus:ring-saffron outline-none" />
       </label>
 
-      <label class="block">
-        <span class="text-sm font-medium text-gray-700">Timezone (UTC offset) *</span>
-        <select required name="tz" id="tz-select"
-                class="mt-1 w-full rounded-lg border-gray-300 border px-3 py-2 bg-white focus:ring-2 focus:ring-saffron outline-none"></select>
-      </label>
+      <div class="flex items-end pb-1">
+        <button type="button" id="geo-btn"
+                class="text-sm underline text-gray-600 hover:text-deepmaroon">
+          Use my current location &amp; timezone
+        </button>
+      </div>
+
+      <!-- ------------------ Advanced Settings (collapsible) ------------------ -->
+      <details id="advanced-settings"
+               class="md:col-span-2 lg:col-span-3 rounded-xl border border-orange-100 bg-orange-50/40 px-4 py-3">
+        <summary class="font-semibold text-deepmaroon text-sm select-none">
+          Advanced Settings — Ayanamsa &amp; Chart Style
+          <span class="text-gray-500 font-normal">(Lahiri · Whole-Sign houses by default)</span>
+        </summary>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
+          <label class="block">
+            <span class="text-sm font-medium text-gray-700">Ayanamsa (precession constant)</span>
+            <select name="ayanamsa"
+                    class="mt-1 w-full rounded-lg border-gray-300 border px-3 py-2 bg-white focus:ring-2 focus:ring-saffron outline-none">
+              <option value="LAHIRI" selected>Lahiri (Chitrapaksha) — standard</option>
+              <option value="RAMAN">Raman</option>
+              <option value="KRISHNAMURTI">KP (Krishnamurti)</option>
+              <option value="YUKTESHWAR">Yukteshwar</option>
+              <option value="DJWHALKHUL">Djwhal Khul</option>
+              <option value="TRUE_CHITRA">True Chitra (fixed-sidereal)</option>
+            </select>
+          </label>
+          <label class="block">
+            <span class="text-sm font-medium text-gray-700">Chart Style</span>
+            <select name="chart_style"
+                    class="mt-1 w-full rounded-lg border-gray-300 border px-3 py-2 bg-white focus:ring-2 focus:ring-saffron outline-none">
+              <option value="NORTH" selected>North Indian (diamond)</option>
+              <option value="SOUTH">South Indian (square grid)</option>
+            </select>
+          </label>
+          <label class="block">
+            <span class="text-sm font-medium text-gray-700">Rahu Node Type</span>
+            <select name="node_type"
+                    class="mt-1 w-full rounded-lg border-gray-300 border px-3 py-2 bg-white focus:ring-2 focus:ring-saffron outline-none">
+              <option value="MEAN" selected>Mean Node (Parashari)</option>
+              <option value="TRUE">True Node (KP)</option>
+            </select>
+          </label>
+        </div>
+      </details>
 
       <div class="md:col-span-2 lg:col-span-3 flex flex-wrap items-center gap-4 pt-2">
         <button type="submit" id="submit-btn"
                 class="bg-saffron hover:bg-orange-600 transition text-white font-semibold px-6 py-2.5 rounded-lg shadow">
-          Generate Kundali ✨
-        </button>
-        <button type="button" id="geo-btn"
-                class="text-sm underline text-gray-600 hover:text-deepmaroon">
-          Use my current location &amp; timezone
+          Generate Kundali
         </button>
         <span id="status-msg" class="text-sm text-gray-500" role="status" aria-live="polite"></span>
       </div>
     </form>
   </section>
 
-  <!-- ======================= Results ======================= -->
-  <section id="results" class="hidden space-y-8">
+  <!-- ======================= Results Dashboard ======================= -->
+  <section id="results" class="hidden space-y-6">
 
-    <!-- Lagna summary strip -->
-    <div class="grid grid-cols-2 md:grid-cols-4 gap-4" id="lagna-strip"></div>
+    <!-- Subject banner + quick facts strip -->
+    <div class="bg-white rounded-2xl shadow p-5">
+      <div class="flex flex-wrap items-baseline justify-between gap-2 mb-3">
+        <h2 class="font-display text-xl font-bold text-deepmaroon" id="subject-name">Janma Kundali</h2>
+        <span class="text-xs text-gray-500" id="subject-meta"></span>
+      </div>
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-4" id="lagna-strip"></div>
+    </div>
 
-    <div class="grid grid-cols-1 lg:grid-cols-5 gap-8 items-start">
+    <!-- Tab navigation (ARIA tabs pattern) -->
+    <div role="tablist" aria-label="Kundali dashboard sections"
+         class="flex flex-wrap gap-1 border-b border-gray-200 bg-white rounded-t-2xl shadow px-2 no-print">
+      <button role="tab" class="tab-btn px-4 py-3 text-sm" aria-selected="true"  aria-controls="tab-charts"  id="btn-tab-charts"  data-tab="charts">Charts</button>
+      <button role="tab" class="tab-btn px-4 py-3 text-sm" aria-selected="false" aria-controls="tab-planets" id="btn-tab-planets" data-tab="planets">Planetary Details</button>
+      <button role="tab" class="tab-btn px-4 py-3 text-sm" aria-selected="false" aria-controls="tab-dasha"   id="btn-tab-dasha"   data-tab="dasha">Vimshottari Dasha</button>
+      <button role="tab" class="tab-btn px-4 py-3 text-sm" aria-selected="false" aria-controls="tab-doshas"  id="btn-tab-doshas"  data-tab="doshas">Doshas &amp; Reports</button>
+    </div>
 
-      <!-- North Indian chart (SVG, rendered by JS) -->
-      <div class="lg:col-span-2 chart-card rounded-2xl shadow p-4">
-        <h2 class="font-display text-lg font-bold mb-2 text-deepmaroon">Lagna Chart (D-1) · North Indian</h2>
-        <div id="chart-holder" class="w-full"></div>
-        <p class="text-xs text-gray-500 mt-2">
-          House 1 (Lagna) is the fixed top diamond; houses run <strong>counter-clockwise</strong>.
-          The small grey number in each corner is the zodiac sign (1 = Aries … 12 = Pisces).
-          <span class="planet-retro">(R)</span> marks retrograde grahas.
-        </p>
+    <div class="bg-white rounded-b-2xl rounded-t-none shadow p-5">
+
+      <!-- ============ TAB 1 · Charts ============ -->
+      <div role="tabpanel" id="tab-charts" class="tab-panel" aria-labelledby="btn-tab-charts">
+        <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+          <h3 class="font-display text-lg font-bold text-deepmaroon" id="chart-title">Lagna Chart (D-1)</h3>
+          <div class="inline-flex rounded-lg border border-orange-200 overflow-hidden no-print" role="group" aria-label="Divisional chart selector">
+            <button id="chart-btn-d1" class="px-4 py-1.5 text-sm font-semibold bg-saffron text-white">D-1 · Lagna</button>
+            <button id="chart-btn-d9" class="px-4 py-1.5 text-sm font-semibold bg-white text-deepmaroon hover:bg-orange-50">D-9 · Navamsa</button>
+          </div>
+        </div>
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+          <div class="chart-card rounded-2xl shadow p-4">
+            <div id="chart-holder" class="w-full"></div>
+          </div>
+          <div class="space-y-4">
+            <p id="chart-note" class="text-sm text-gray-600 leading-relaxed"></p>
+            <div id="chart-facts" class="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm"></div>
+          </div>
+        </div>
       </div>
 
-      <!-- Planetary table -->
-      <div class="lg:col-span-3 bg-white rounded-2xl shadow overflow-hidden">
-        <div class="p-4 pb-2">
-          <h2 class="font-display text-lg font-bold text-deepmaroon">Graha Positions (Sidereal · Lahiri)</h2>
-        </div>
-        <div class="overflow-x-auto">
+      <!-- ============ TAB 2 · Planetary Details ============ -->
+      <div role="tabpanel" id="tab-planets" class="tab-panel" aria-labelledby="btn-tab-planets" hidden>
+        <h3 class="font-display text-lg font-bold text-deepmaroon mb-1">Graha Positions (Sidereal)</h3>
+        <p class="text-sm text-gray-600 mb-4" id="planet-table-sub"></p>
+        <div class="overflow-x-auto rounded-xl border border-gray-100">
           <table class="min-w-full text-sm">
             <thead class="bg-orange-50 text-deepmaroon">
               <tr>
                 <th class="px-3 py-2 text-left font-semibold">Planet</th>
-                <th class="px-3 py-2 text-left font-semibold">Sign</th>
+                <th class="px-3 py-2 text-left font-semibold">Sign (Rasi)</th>
                 <th class="px-3 py-2 text-right font-semibold">Degree</th>
+                <th class="px-3 py-2 text-center font-semibold">House</th>
                 <th class="px-3 py-2 text-left font-semibold">Nakshatra</th>
                 <th class="px-3 py-2 text-center font-semibold">Pada</th>
-                <th class="px-3 py-2 text-center font-semibold">House</th>
-                <th class="px-3 py-2 text-center font-semibold">Retro.</th>
+                <th class="px-3 py-2 text-left font-semibold">Nak. Lord</th>
+                <th class="px-3 py-2 text-center font-semibold">Retrograde</th>
               </tr>
             </thead>
             <tbody id="planet-tbody" class="divide-y divide-gray-100"></tbody>
           </table>
         </div>
+        <h4 class="font-display text-base font-bold text-deepmaroon mt-6 mb-2">D-9 Navamsa Placements</h4>
+        <div class="overflow-x-auto rounded-xl border border-gray-100">
+          <table class="min-w-full text-sm">
+            <thead class="bg-orange-50 text-deepmaroon">
+              <tr>
+                <th class="px-3 py-2 text-left font-semibold">Planet</th>
+                <th class="px-3 py-2 text-left font-semibold">Navamsa Sign</th>
+                <th class="px-3 py-2 text-center font-semibold">Navamsa #</th>
+                <th class="px-3 py-2 text-right font-semibold">Deg. in D-1 Sign</th>
+                <th class="px-3 py-2 text-center font-semibold">D-9 House</th>
+              </tr>
+            </thead>
+            <tbody id="navamsa-tbody" class="divide-y divide-gray-100"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ============ TAB 3 · Vimshottari Dasha ============ -->
+      <div role="tabpanel" id="tab-dasha" class="tab-panel" aria-labelledby="btn-tab-dasha" hidden>
+        <h3 class="font-display text-lg font-bold text-deepmaroon mb-1">Vimshottari Mahadasha (120-year cycle)</h3>
+        <p id="dasha-sub" class="text-sm text-gray-600 mb-4"></p>
+        <div class="overflow-x-auto rounded-xl border border-gray-100 mb-5">
+          <table class="min-w-full text-sm">
+            <thead class="bg-orange-50 text-deepmaroon">
+              <tr>
+                <th class="px-3 py-2 text-center font-semibold">#</th>
+                <th class="px-3 py-2 text-left font-semibold">Mahadasha Lord</th>
+                <th class="px-3 py-2 text-left font-semibold">Start</th>
+                <th class="px-3 py-2 text-left font-semibold">End</th>
+                <th class="px-3 py-2 text-right font-semibold">Years</th>
+                <th class="px-3 py-2 text-left font-semibold w-40">Progress</th>
+                <th class="px-3 py-2 text-center font-semibold">Status</th>
+              </tr>
+            </thead>
+            <tbody id="dasha-tbody" class="divide-y divide-gray-100"></tbody>
+          </table>
+        </div>
+        <h4 class="font-display text-base font-bold text-deepmaroon mb-2">Antardasha (Bhukti) Detail</h4>
+        <div id="dasha-ad-selector" class="flex flex-wrap gap-2 mb-3 no-print"></div>
+        <div id="dasha-ad-list" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2 text-xs text-gray-700"></div>
+      </div>
+
+      <!-- ============ TAB 4 · Doshas & Reports ============ -->
+      <div role="tabpanel" id="tab-doshas" class="tab-panel" aria-labelledby="btn-tab-doshas" hidden>
+        <h3 class="font-display text-lg font-bold text-deepmaroon mb-1">Automated Dosha Report</h3>
+        <p class="text-sm text-gray-600 mb-4">
+          Flags evaluated directly from the sidereal planetary coordinates returned by the API
+          (Mangal · Kaal Sarp · Sade Sati transit status).
+        </p>
+        <div id="dosha-cards" class="grid grid-cols-1 md:grid-cols-3 gap-4"></div>
+        <div class="mt-6 rounded-xl border border-gray-100 bg-gray-50 p-4 text-sm text-gray-700" id="dosha-summary"></div>
       </div>
     </div>
 
-    <!-- Vimshottari dasha timeline -->
-    <div class="bg-white rounded-2xl shadow p-5">
-      <h2 class="font-display text-lg font-bold text-deepmaroon mb-1">Vimshottari Mahadasha (120-year cycle)</h2>
-      <p id="dasha-sub" class="text-sm text-gray-600 mb-4"></p>
-      <div id="dasha-list" class="space-y-2"></div>
-    </div>
-
-    <!-- Raw JSON (deliverable #2 demonstration) -->
-    <details class="bg-white rounded-2xl shadow p-5">
+    <!-- Raw JSON (API contract demonstration) -->
+    <details class="bg-white rounded-2xl shadow p-5 no-print">
       <summary class="font-semibold text-deepmaroon">▸ View raw API JSON response</summary>
       <pre id="json-pre" class="mt-3 text-xs bg-gray-900 text-green-300 rounded-lg p-4 overflow-auto max-h-[480px]"></pre>
     </details>
@@ -180,10 +331,11 @@
     <h3 class="font-display text-base font-bold text-deepmaroon mb-2">How this engine works</h3>
     <ul class="list-disc pl-5 space-y-1">
       <li><strong>Ephemeris:</strong> Swiss Ephemeris C library (<code>pyswisseph</code>) with NASA JPL DE431 files — sub-arcsecond planetary precision.</li>
-      <li><strong>Ayanamsa:</strong> Lahiri (Chitrapaksha) — the standard used by Indian calendars and most professional jyotish software.</li>
+      <li><strong>Ayanamsa:</strong> Lahiri (Chitrapaksha) by default; Raman and KP (Krishnamurti) selectable under Advanced Settings.</li>
       <li><strong>Houses:</strong> Whole-Sign (Rasi) — the sign containing the Ascendant becomes House 1, continuing counter-clockwise.</li>
-      <li><strong>Grahas:</strong> Surya, Chandra, Mangal, Budha, Guru, Shukra, Shani, Rahu (mean node) and Ketu (exactly 180° from Rahu).</li>
+      <li><strong>Charts:</strong> North-Indian diamond or South-Indian square grid, each available as D-1 (Lagna) and D-9 (Navamsa).</li>
       <li><strong>Dasha:</strong> Vimshottari balance measured astronomically by finding the exact instant the Moon entered its natal nakshatra.</li>
+      <li><strong>Doshas:</strong> Mangal (Kuja), Kaal Sarp and live Sade Sati transit flags computed server-side from the same coordinates.</li>
     </ul>
   </section>
 </main>
@@ -192,400 +344,3 @@
   For entertainment and study of Jyotish shastra. Calculations served by
   <span class="font-semibold">kundali-banaune-api</span> (FastAPI + pyswisseph).
 </footer>
-
-<script>
-/* ==========================================================================
- * kundali-banaune-site frontend logic
- * --------------------------------------------------------------------------
- * 1. Configures the backend endpoint (auto-detects localhost vs deployed).
- * 2. Builds the form → POST /api/generate-kundali.
- * 3. Renders: lagna strip, North-Indian SVG chart, planet table, dasha list.
- * ======================================================================== */
-
-/* ------------------------- Backend endpoint config ---------------------- */
-// Override at deploy time by setting window.KUNDALI_API_BASE in a script tag,
-// or via ?api=https://your-app.onrender.com in the page URL.
-const urlParam = new URLSearchParams(location.search).get('api');
-const API_BASE = urlParam
-  || window.KUNDALI_API_BASE
-  || (location.hostname === '127.0.0.1' || location.hostname === 'localhost'
-        ? 'http://127.0.0.1:8000'                 // local uvicorn dev server
-        : 'https://kundali-banaune-api.onrender.com'); // ← change to your Render/Railway URL
-const API_URL = `${API_BASE}/api/generate-kundali`;
-
-/* ------------------------------ City presets ---------------------------- */
-const CITIES = [
-  // name, lat, lon, UTC offset (standard time — no DST applied)
-  ['Delhi, IN',        28.6139,   77.2090,  5.5],
-  ['Mumbai, IN',       19.0760,   72.8777,  5.5],
-  ['Kolkata, IN',      22.5726,   88.3639,  5.5],
-  ['Chennai, IN',      13.0827,   80.2707,  5.5],
-  ['Bengaluru, IN',    12.9716,   77.5946,  5.5],
-  ['Hyderabad, IN',    17.3850,   78.4867,  5.5],
-  ['Varanasi, IN',     25.3176,   82.9739,  5.5],
-  ['Ujjain, IN',       23.1793,   75.7849,  5.5],
-  ['Kathmandu, NP',    27.7172,   85.3240,  5.75],
-  ['Karachi, PK',      24.8607,   67.0011,  5.0],
-  ['Dhaka, BD',        23.8103,   90.4125,  6.0],
-  ['Colombo, LK',       6.9271,   79.8612,  5.5],
-  ['Dubai, AE',        25.2048,   55.2708,  4.0],
-  ['Singapore, SG',     1.3521,  103.8198,  8.0],
-  ['London, UK',       51.5074,   -0.1278,  0.0],
-  ['New York, US',     40.7128,  -74.0060, -5.0],
-  ['Los Angeles, US',  34.0522, -118.2437, -8.0],
-  ['Toronto, CA',      43.6532,  -79.3832, -5.0],
-  ['Sydney, AU',      -33.8688,  151.2093, 10.0],
-];
-
-/* Timezone dropdown: -12 … +14 in 0.25 h steps (covers IST +5:30, Nepal +5:45) */
-(function buildTzSelect(){
-  const sel = document.getElementById('tz-select');
-  for (let t = -12; t <= 14; t += 0.25) {
-    const o = document.createElement('option');
-    o.value = t;
-    const sign = t >= 0 ? '+' : '−';
-    const abs = Math.abs(t);
-    o.textContent = `UTC ${sign}${String(Math.floor(abs)).padStart(2,'0')}:${String(Math.round((abs%1)*60)).padStart(2,'0')}`;
-    if (t === 5.5) o.selected = true;         // default: India Standard Time
-    sel.appendChild(o);
-  }
-})();
-
-/* City dropdown */
-(function buildCitySelect(){
-  const sel = document.getElementById('city-select');
-  CITIES.forEach(([name], i) => {
-    const o = document.createElement('option');
-    o.value = i; o.textContent = name;
-    sel.appendChild(o);
-  });
-  sel.addEventListener('change', () => {
-    const c = CITIES[+sel.value];
-    if (!c) return;
-    form.lat.value = c[1];
-    form.lon.value = c[2];
-    form.tz.value  = c[3];
-  });
-})();
-
-/* ------------------------------ DOM refs -------------------------------- */
-const form    = document.getElementById('kundali-form');
-const status_ = document.getElementById('status-msg');
-const banner  = document.getElementById('api-banner');
-const results = document.getElementById('results');
-const btn     = document.getElementById('submit-btn');
-
-/* Browser geolocation helper */
-document.getElementById('geo-btn').addEventListener('click', () => {
-  if (!navigator.geolocation) { showBanner('Geolocation not supported by this browser.'); return; }
-  status_.textContent = 'Requesting location…';
-  navigator.geolocation.getCurrentPosition(pos => {
-    form.lat.value = pos.coords.latitude.toFixed(4);
-    form.lon.value = pos.coords.longitude.toFixed(4);
-    const off = -pos.coords.timezoneOffset / 60;             // minutes → hours
-    // snap to nearest available option in the select
-    const opts = [...form.tz.options].map(o => parseFloat(o.value));
-    let best = opts[0];
-    for (const o of opts) if (Math.abs(o - off) < Math.abs(best - off)) best = o;
-    form.tz.value = best;
-    document.getElementById('city-select').value = '';
-    status_.textContent = `Location set (${pos.coords.latitude.toFixed(2)}, ${pos.coords.longitude.toFixed(2)}), UTC${off >= 0 ? '+' : ''}${off}`;
-  }, () => { status_.textContent = 'Location permission denied — enter coordinates manually.'; });
-});
-
-function showBanner(msg) {
-  banner.textContent = msg;
-  banner.classList.remove('hidden');
-}
-
-/* --------------------------- Form submission ---------------------------- */
-form.addEventListener('submit', async (ev) => {
-  ev.preventDefault();
-  banner.classList.add('hidden');
-  btn.disabled = true;
-  status_.textContent = 'Calculating with Swiss Ephemeris…';
-
-  const payload = {
-    date_of_birth:         form.dob.value,                    // YYYY-MM-DD
-    time_of_birth:         form.tob.value.length === 5 ? form.tob.value + ':00' : form.tob.value,
-    latitude:              parseFloat(form.lat.value),
-    longitude:             parseFloat(form.lon.value),
-    timezone_offset_hours: parseFloat(form.tz.value),
-    ayanamsa:              'LAHIRI',
-    node_type:             'MEAN',
-  };
-
-  try {
-    const resp = await fetch(API_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    if (!resp.ok) {
-      let detail = resp.statusText;
-      try { detail = (await resp.json()).detail || detail; } catch {}
-      throw new Error(`API error ${resp.status}: ${detail}`);
-    }
-    const data = await resp.json();
-    renderAll(data);
-    status_.textContent = `Done in ${data.meta ? '' : ''}· engine: ${data.meta.ephemeris_source}`;
-    results.classList.remove('hidden');
-    document.getElementById('howto').classList.add('hidden');
-    results.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  } catch (err) {
-    showBanner(
-      `Could not reach the calculation server at ${API_URL}. ` +
-      `(${err.message}) — deploy main.py on Render/Railway and set KUNDALI_API_BASE, ` +
-      `or append ?api=http://127.0.0.1:8000 while running locally.`);
-    status_.textContent = '';
-  } finally {
-    btn.disabled = false;
-  }
-});
-
-/* ============================ RENDERING ================================= */
-
-const SIGN_NAMES = ['Aries','Taurus','Gemini','Cancer','Leo','Virgo',
-                    'Libra','Scorpio','Sagittarius','Capricorn','Aquarius','Pisces'];
-
-function renderAll(d) {
-  renderLagnaStrip(d);
-  renderNorthIndianChart(d);
-  renderTable(d);
-  renderDasha(d);
-  document.getElementById('json-pre').textContent = JSON.stringify(d, null, 2);
-}
-
-/* ------------------------- Lagna summary strip -------------------------- */
-function renderLagnaStrip(d) {
-  const L = d.lagna, M = d.meta;
-  const cards = [
-    ['Lagna (Ascendant)', `${L.sign} ${L.degree_dms}`, `Nakshatra: ${L.nakshatra} · Pada ${L.pada}`],
-    ['Ayanamsa',          `${M.ayanamsa_deg.toFixed(3)}°`, `${M.ayanamsa} · sidereal`],
-    ['Birth (UT)',        M.birth_time_ut, `JD ${M.julian_day_ut}`],
-    ['Moon Nakshatra',    d.vimshottari_dasha.moon_nakshatra,
-                          `Dasha start: ${d.vimshottari_dasha.starting_mahadasha_lord}`],
-  ];
-  document.getElementById('lagna-strip').innerHTML = cards.map(([k,v,s]) => `
-    <div class="bg-white rounded-xl shadow p-4">
-      <div class="text-xs uppercase tracking-wide text-gray-500">${k}</div>
-      <div class="text-lg font-bold text-deepmaroon">${v}</div>
-      <div class="text-xs text-gray-500">${s}</div>
-    </div>`).join('');
-}
-
-/* ------------------- North Indian chart (pure SVG) ---------------------- */
-/*
- * Geometry of the classic diamond-in-square layout (viewBox 0 0 400 400):
- *
- *        (200,0)                              square + both diagonals +
- *   (0,100)──┐   ┌(100,0)                      the inner diamond joining the
- *            │   │                             edge midpoints (100,0)…(300,200)
- *   House 1 is ALWAYS the top-centre diamond;  numbers run counter-clockwise:
- *
- *        ┌───[ 1 ]───┐          H1 = top centre diamond
- *        │ 12 ╲ ╱  2 │          H2 = top-left triangle, H3 = left-top quad …
- *     [11]     X     [4]        … up to H12 = top-right triangle.
- *        │ 10 ╱ ╲   5│
- *        └───[ 9 ]───┘          H9 = bottom-centre diamond (opposite Lagna)
- *
- * Sign numbers are dynamic: sign(H) = ((Lagna_sign − 1 + H − 1) mod 12) + 1.
- * Planets are grouped per house and laid out as a wrapped text grid so that
- * any number of grahas in one house never overlap.
- */
-const HOUSE_POLYGONS = [
-  /*  1 */ "200,4 296,100 200,196 104,100",
-  /*  2 */ "4,4 196,4 100,100 4,100",
-  /*  3 */ "4,104 96,104 4,196",
-  /*  4 */ "4,204 96,296 4,296",
-  /*  5 */ "4,300 100,300 196,396 4,396",
-  /*  6 */ "204,396 204,304 296,396",
-  /*  7 */ "204,296 300,296 204,396",
-  /*  8 */ "304,296 396,396 304,396",
-  /*  9 */ "200,204 296,300 200,396 104,300",
-  /* 10 */ "304,196 396,104 396,196",
-  /* 11 */ "304,104 396,4 396,104 304,4",
-  /* 12 */ "204,4 300,4 396,100 204,100",
-];
-// Anchor points where the *house-number* label sits (classic corner style).
-const HOUSE_NUM_ANCHORS = [
-  [200, 52], [168, 30], [30, 128], [30, 272], [64, 372], [232, 372],
-  [272, 320], [370, 272], [200, 348], [370, 128], [330, 30], [232, 30],
-];
-// Centre-ish regions where planets get written for each house.
-const HOUSE_PLANET_ANCHORS = [
-  [200, 128], [100, 55], [45, 155], [45, 245], [100, 345], [200, 352],
-  [255, 345], [355, 245], [200, 272], [355, 155], [300, 55], [255, 55],
-];
-
-function renderNorthIndianChart(d) {
-  const lagnaSign = d.lagna.sign_index;                       // 1..12
-
-  // group planets by whole-sign house
-  const byHouse = Array.from({length: 12}, () => []);
-  for (const p of d.planets) byHouse[p.house - 1].push(p);
-
-  const NS = 'http://www.w3.org/2000/svg';
-  const svg = document.createElementNS(NS, 'svg');
-  svg.setAttribute('viewBox', '0 0 400 400');
-  svg.setAttribute('class', 'w-full h-auto select-none');
-  svg.setAttribute('role', 'img');
-  svg.setAttribute('aria-label', `North Indian kundali, Lagna ${d.lagna.sign}`);
-
-  const add = (tag, attrs, text) => {
-    const el = document.createElementNS(NS, tag);
-    for (const k in attrs) el.setAttribute(k, attrs[k]);
-    if (text !== undefined) el.textContent = text;
-    svg.appendChild(el);
-    return el;
-  };
-
-  // frame + construction lines
-  add('rect',   { x:2, y:2, width:396, height:396, rx:10, class:'ni-line' });
-  add('line',   { x1:2, y1:2, x2:398, y2:398, class:'ni-line-thin' });
-  add('line',   { x1:398, y1:2, x2:2, y2:398, class:'ni-line-thin' });
-  add('polygon',{ points:'200,2 398,200 200,398 2,200', class:'ni-line-thin' });
-
-  // faint house cells (invisible hit areas + subtle fill on odd houses)
-  HOUSE_POLYGONS.forEach((pts, i) => {
-    add('polygon', { points: pts, fill: i % 2 ? '#fbf3e4' : '#ffffff',
-                     'fill-opacity': 0.6, stroke: 'none' });
-  });
-
-  // per-house content: number, sign, Lagna badge, planets
-  for (let h = 1; h <= 12; h++) {
-    const idx = h - 1;
-    const signNum = ((lagnaSign - 1 + idx) % 12) + 1;         // dynamic rasi
-
-    // house number (big, amber)
-    add('text', { x: HOUSE_NUM_ANCHORS[idx][0], y: HOUSE_NUM_ANCHORS[idx][1],
-                  'text-anchor':'middle', class:'house-num' }, String(h));
-
-    // sign number (small grey, just inside same corner)
-    add('text', { x: HOUSE_NUM_ANCHORS[idx][0], y: HOUSE_NUM_ANCHORS[idx][1] + 15,
-                  'text-anchor':'middle', class:'sign-num' }, String(signNum));
-
-    if (h === 1) {  // Lagna badge
-      add('text', { x: 200, y: 22, 'text-anchor':'middle', class:'lagna-badge' },
-          'LAGNA ▲');
-    }
-
-    // ---- non-overlapping planet labels: adaptive wrapped text grid ----
-    // Layout is computed in *SVG user units* (viewBox 0 0 400 400) so it is
-    // resolution-independent.  Column/row gaps shrink as occupancy grows; a
-    // final collision pass guarantees that no two bounding boxes ever touch,
-    // even for a full 9-graha conjunction in the smallest corner triangle.
-    const occupants = byHouse[idx];
-    if (occupants.length) {
-      const cx = HOUSE_PLANET_ANCHORS[idx][0];
-      const cy = HOUSE_PLANET_ANCHORS[idx][1];
-
-      let cols, dx, dy, fs;
-      if (occupants.length <= 2)       { cols = occupants.length; dx = 44; dy = 18; fs = 13; }
-      else if (occupants.length <= 6)  { cols = 3;                 dx = 40; dy = 18; fs = 13; }
-      else                             { cols = 5;                 dx = 34; dy = 15; fs = 11; }
-      const rows = Math.ceil(occupants.length / cols);
-      const x0 = cx - ((cols - 1) * dx) / 2;
-      const y0 = cy - ((rows - 1) * dy) / 2 + (h === 1 ? 14 : 0);
-
-      // First pass: create every label at its grid slot and measure the REAL
-      // rendered box in user units (getBoundingClientRect on SVG elements is
-      // mapped through getScreenCTM → viewBox coordinates, font-stack exact).
-      const items = occupants.map((p, i) => {
-        const g = document.createElementNS(NS, 'g');
-        const title = document.createElementNS(NS, 'title');
-        title.textContent = `${p.name} (${p.sanskrit_name}) — ${p.sign} ${p.degree_in_sign_dms}` +
-                            ` · ${p.nakshatra} pada ${p.pada} · House ${p.house}` +
-                            (p.retrograde ? ' · Retrograde' : '');
-        const t = document.createElementNS(NS, 'text');
-        t.setAttribute('x', x0 + (i % cols) * dx);
-        t.setAttribute('y', y0 + Math.floor(i / cols) * dy);
-        t.setAttribute('text-anchor', 'middle');
-        t.setAttribute('class', 'planet-label');
-        if (fs !== 13) t.setAttribute('font-size', String(fs));
-        t.textContent = p.abbr + (p.retrograde ? '(R)' : '');
-        if (p.retrograde) t.classList.add('planet-retro');
-        g.appendChild(title); g.appendChild(t); svg.appendChild(g);
-        return { t, ux: t.getAttribute('x') * 1, uy: t.getAttribute('y') * 1 };
-      });
-
-      // Measure true widths/heights in user units.
-      const ctm = svg.getScreenCTM().inverse();
-      const scale = Math.hypot(ctm.a, ctm.b);          // screen px → user units
-      items.forEach(it => {
-        const r = it.t.getBoundingClientRect();
-        it.w = r.width * scale;                        // token width (user u)
-        it.h = r.height * scale;                       // line height  (user u)
-      });
-
-      // Second pass: greedy collision resolution against already-placed boxes.
-      // If the grid slot collides, slide right along the row; if still hot,
-      // drop one line.  Guarantees zero overlap for any occupancy ≤ 9.
-      const placedBoxes = [];
-      items.forEach(it => {
-        let ux = it.ux, uy = it.uy;
-        const overlapsAny = () => placedBoxes.some(q =>
-          ux - it.w / 2 < q.x + q.w / 2 && q.x - q.w / 2 < ux + it.w / 2 &&
-          uy - it.h     < q.y          && q.y - q.h < uy);
-        let guard = 0;
-        while (overlapsAny() && guard++ < 80) {
-          if (guard % 2) ux += 6; else { ux = it.ux; uy += dy; }
-        }
-        it.t.setAttribute('x', ux.toFixed(1));
-        it.t.setAttribute('y', uy.toFixed(1));
-        placedBoxes.push({ x: ux, y: uy, w: it.w, h: it.h });
-      });
-    }
-  }
-
-  const holder = document.getElementById('chart-holder');
-  holder.replaceChildren(svg);
-}
-
-/* ----------------------------- Planet table ------------------------------ */
-function renderTable(d) {
-  const tb = document.getElementById('planet-tbody');
-  tb.innerHTML = d.planets.map(p => `
-    <tr class="hover:bg-orange-50/40 ${p.retrograde ? 'text-red-800' : ''}">
-      <td class="px-3 py-2 font-semibold">${p.name} <span class="text-gray-400 font-normal">(${p.sanskrit_name})</span></td>
-      <td class="px-3 py-2">${p.sign_index} · ${p.sign}</td>
-      <td class="px-3 py-2 text-right tabular-nums">${p.degree_in_sign_dms}</td>
-      <td class="px-3 py-2">${p.nakshatra} <span class="text-gray-400">(${p.nakshatra_lord})</span></td>
-      <td class="px-3 py-2 text-center">${p.pada}</td>
-      <td class="px-3 py-2 text-center font-semibold">${p.house}</td>
-      <td class="px-3 py-2 text-center">${p.retrograde ? '<span class="inline-block bg-red-100 text-red-700 rounded px-1.5 py-0.5 text-xs font-bold">Yes (R)</span>' : '—'}</td>
-    </tr>`).join('');
-}
-
-/* --------------------------- Dasha timeline ------------------------------ */
-function renderDasha(d) {
-  const V = d.vimshottari_dasha;
-  document.getElementById('dasha-sub').textContent =
-    `Moon in ${V.moon_nakshatra} (lord ${V.starting_mahadasha_lord}) · ` +
-    `balance at birth: ${V.balance_years} years ` +
-    `(${(V.balance_fraction_of_mahadasha * 100).toFixed(1)}% of the ${V.starting_mahadasha_lord} mahadasha)`;
-
-  document.getElementById('dasha-list').innerHTML = V.mahadashas.map(m => {
-    const now = new Date();
-    const s = new Date(m.start_date), e = new Date(m.end_date);
-    const active = now >= s && now < e;
-    return `
-    <details class="rounded-lg border ${active ? 'border-saffron bg-orange-50' : 'border-gray-200 bg-white'}">
-      <summary class="flex items-center justify-between px-4 py-2.5 text-sm">
-        <span class="font-semibold ${active ? 'text-deepmaroon' : 'text-gray-800'}">
-          ${m.order}. ${m.lord} Mahādasha ${active ? '<span class="ml-2 text-xs bg-green-600 text-white rounded-full px-2 py-0.5">running</span>' : ''}
-        </span>
-        <span class="tabular-nums text-gray-600">${m.start_date} → ${m.end_date}
-              <span class="text-gray-400">(${m.length_years} yrs)</span></span>
-      </summary>
-      <div class="px-4 pb-3 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-1.5 text-xs text-gray-700">
-        ${m.antardashas.map(a => `<div class="bg-gray-50 rounded px-2 py-1 border border-gray-100">
-            <span class="font-semibold">${a.lord}</span><br>${a.start_date}<br>→ ${a.end_date}
-          </div>`).join('')}
-      </div>
-    </details>`;
-  }).join('');
-}
-</script>
-</body>
-</html>

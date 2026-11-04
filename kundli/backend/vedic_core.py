@@ -100,6 +100,12 @@ PLANET_SANSKRIT: Dict[str, str] = {
     "Rahu": "Rahu", "Ketu": "Ketu",
 }
 
+# Natural lord of each rasi (index 0 = Aries … 11 = Pisces).
+SIGN_LORDS: List[str] = [
+    "Mars", "Mercury", "Jupiter", "Moon", "Sun", "Mercury",
+    "Venus", "Mars", "Jupiter", "Saturn", "Saturn", "Jupiter",
+]
+
 # Never retrograde in the geocentric frame.
 NON_RETRO_BODIES = {"Sun", "Moon"}
 
@@ -236,6 +242,35 @@ class PlanetPosition:
     retrograde: bool             # True ⇒ renderer appends '*'/'(R)'
     house: int                   # 1–12 whole-sign house counted from Lagna
     daily_motion_deg: float      # signed °/day (negative = retrograde)
+    is_graha: bool               # True for the 7 physical planets, False for nodes
+    exalted_in: Optional[str]    # sign of exaltation, None for nodes
+    debilitated_in: Optional[str]  # sign of debilitation, None for nodes
+
+
+# Exaltation / debilitation signs (Parashari standard; nodes have none).
+EXALTATION: Dict[str, str] = {
+    "Sun": "Aries", "Moon": "Taurus", "Mars": "Capricorn",
+    "Mercury": "Virgo", "Jupiter": "Cancer", "Venus": "Pisces",
+    "Saturn": "Libra",
+}
+DEBILITATION: Dict[str, str] = {
+    "Sun": "Libra", "Moon": "Scorpio", "Mars": "Cancer",
+    "Mercury": "Pisces", "Jupiter": "Capricorn", "Venus": "Virgo",
+    "Saturn": "Aries",
+}
+
+
+@dataclass
+class NavamsaPlacement:
+    """D-9 (Navamsa) position of one graha, derived from its D-1 rasi."""
+    name: str                    # 'Sun' … 'Ketu'
+    abbr: str                    # 'Su' … 'Ke'
+    sign_index: int              # D-9 rasi 1–12
+    sign: str                    # 'Aries' … 'Pisces'
+    sign_short: str              # 'Ar' … 'Pi'
+    degree_in_d1_sign: float     # decimal degrees travelled inside the D-1 sign
+    navamsa_pada: int             # 1–9 (the D-9 division number within the sign)
+    house: int                   # D-9 house counted from the *Lagna* navamsa
 
 
 # ---------------------------------------------------------------------------
@@ -346,9 +381,41 @@ class VedicCalculator:
         moon = next(p for p in planets if p.name == "Moon")
         dasha = self.vimshottari_timeline(jd, moon.sidereal_longitude)
 
+        # ---- D-9 Navamsa (divisional chart) placements ---------------------
+        lagna_nav_sign = self.navamsa_sign(lag_sign, lag_deg)
+        navamsa: List[NavamsaPlacement] = []
+        for p in planets:
+            n_sign = self.navamsa_sign(p.sign_index, p.degree_in_sign)
+            navamsa.append(NavamsaPlacement(
+                name=p.name, abbr=p.abbr,
+                sign_index=n_sign, sign=RASI_NAMES[n_sign - 1],
+                sign_short=RASI_SHORT[n_sign - 1],
+                degree_in_d1_sign=round(p.degree_in_sign, 4),
+                navamsa_pada=int(p.degree_in_sign // PADA_SPAN) + 1,
+                house=((n_sign - lagna_nav_sign) % 12) + 1,
+            ))
+
+        # ---- Moon Nakshatra block (dasha anchor details) -------------------
+        m_nak_start = (moon.nakshatra_index - 1) * NAK_SPAN
+        moon_nak = {
+            "nakshatra_index": moon.nakshatra_index,
+            "nakshatra": moon.nakshatra,
+            "nakshatra_lord": moon.nakshatra_lord,
+            "pada": moon.pada,
+            "degree_within_nakshatra": round(
+                norm360(moon.sidereal_longitude - m_nak_start), 4),
+            "start_degree": round(m_nak_start, 4),
+            "end_degree": round(m_nak_start + NAK_SPAN, 4),
+            "sign": moon.sign,
+            "sign_index": moon.sign_index,
+            "side_of_moon": "Waxing" if moon.daily_motion_deg >= 0 else "Waning",
+        }
+
+        doshas = evaluate_doshas(planets, lag_sign, jd)
+
         return {
             "meta": {
-                "module": "Vedic Kundali Engine v1.0",
+                "module": "Vedic Kundali Engine v2.0",
                 "engine": "Swiss Ephemeris (pyswisseph)",
                 "ephemeris_source": self.ephemeris_source,
                 "ayanamsa": self.ayanamsa_name,
@@ -357,6 +424,8 @@ class VedicCalculator:
                 "rahu_node_type": self.node_type,
                 "julian_day_ut": round(jd, 7),
                 "birth_time_ut": jd_to_datetime(jd),
+                "supported_ayanamsas": sorted(AYANAMSA_MODES.keys()),
+                "divisional_charts": ["D-1 (Rasi/Lagna)", "D-9 (Navamsa)"],
             },
             "input": {
                 "date_of_birth": date,
@@ -379,6 +448,16 @@ class VedicCalculator:
             },
             "planets": [asdict(p) for p in
                         sorted(planets, key=lambda x: CANONICAL_ORDER.index(x.name))],
+            "navamsa_d9": {
+                "chart": "D-9 Navamsa (Rasi-based divisional)",
+                "lagna_sign_index": lagna_nav_sign,
+                "lagna_sign": RASI_NAMES[lagna_nav_sign - 1],
+                "lagna_sign_short": RASI_SHORT[lagna_nav_sign - 1],
+                "placements": [asdict(n) for n in
+                               sorted(navamsa, key=lambda x: CANONICAL_ORDER.index(x.name))],
+            },
+            "moon_nakshatra": moon_nak,
+            "doshas": doshas,
             "vimshottari_dasha": dasha,
         }
 
@@ -404,6 +483,9 @@ class VedicCalculator:
             retrograde=bool(retro),
             house=((sign - lagna_sign) % 12) + 1,   # Whole-Sign counting
             daily_motion_deg=round(spd, 6),
+            is_graha=name in EXALTATION,
+            exalted_in=EXALTATION.get(name),
+            debilitated_in=DEBILITATION.get(name),
         )
 
     # -- Vimshottari Dasha ----------------------------------------------------
@@ -515,3 +597,181 @@ class VedicCalculator:
             })
             cur = end
         return out
+
+
+# ---------------------------------------------------------------------------
+# Dosha evaluation (module-level so it is unit-testable on its own)
+# ---------------------------------------------------------------------------
+
+def _rel_house(from_sign: int, to_sign: int) -> int:
+    """Whole-sign house number of ``to_sign`` counted from ``from_sign`` (1..12)."""
+    return ((to_sign - from_sign) % 12) + 1
+
+
+# Houses (from Lagna or from Moon) that trigger Mangal (Kuja) Dosha.
+MANGAL_HOUSES = (1, 2, 4, 7, 8, 12)
+
+# Signs Rahu occupies in a classic Kaal Sarp pattern; the matching Ketu sign
+# is always exactly opposite (index + 6 mod 12).
+KAAL_SARP_TYPES: Dict[int, str] = {
+    0:  "Anant",   1:  "Vasuki",   2:  "Shesh",    3:  "Padya",
+    4:  "Mahapad", 5:  "Karkotak", 6:  "Shankhpal", 7:  "Gulik",
+    8:  "Vish",    9:  "Cottariya (Vishdhari)",
+    10: "Shankhchuk", 11: "Kaatva",
+}
+
+SATURN_SIGN_SPAN = SIGN_SPAN          # ~2.5 years per rasi
+SADE_SATI_LEAD = 2.5                  # years before Saturn enters Moon+12
+SADE_SATI_TRAIL = 2.5                 # years after Saturn leaves Moon+2
+
+
+def evaluate_doshas(planets: List[PlanetPosition], lagna_sign: int,
+                    jd_now: Optional[float] = None) -> Dict:
+    """Automated Dosha flags computed straight from the sidereal coordinates.
+
+    Returns a JSON-serialisable dict with one entry per checked dosha:
+
+    * ``mangal_dosha``  — Mars in houses 1/2/4/7/8/12 from Lagna **and** from
+      the Moon (the widely-used dual condition; ``present_from_lagna`` /
+      ``present_from_moon`` expose each half separately).
+    * ``kaal_sarp``     — all seven physical grahas hemmed between Rahu and
+      Ketu.  Canonical test: every graha lies on the forward arc that starts
+      at Rahu and ends at Ketu (i.e. none sits in the opposite Ketu→Rahu
+      gap, and none conjuncts the node axis signs breaks nothing — planets
+      *in* the axis signs count as hemmed).
+    * ``sade_sati``     — transits Saturn over the Moon's natal sign and its
+      neighbours (12th/1st/2nd from the Moon), evaluated for *right now*.
+    """
+    by_name = {p.name: p for p in planets}
+    mars, moon, rahu, ketu, saturn = (by_name["Mars"], by_name["Moon"],
+                                      by_name["Rahu"], by_name["Ketu"],
+                                      by_name["Saturn"])
+
+    # ------------------------------ Mangal --------------------------------
+    h_lagna = _rel_house(lagna_sign, mars.sign_index)
+    h_moon = _rel_house(moon.sign_index, mars.sign_index)
+    mangal_present = h_lagna in MANGAL_HOUSES and h_moon in MANGAL_HOUSES
+    mangal = {
+        "dosha": "Mangal (Kuja) Dosha",
+        "present": bool(mangal_present),
+        "mars_house_from_lagna": h_lagna,
+        "mars_house_from_moon": h_moon,
+        "present_from_lagna": h_lagna in MANGAL_HOUSES,
+        "present_from_moon": h_moon in MANGAL_HOUSES,
+        "affected_houses": list(MANGAL_HOUSES),
+        "severity": ("strong" if h_lagna == 1 or h_moon == 1 else
+                     "moderate" if mangal_present else "none"),
+        "remedy_hint": ("Nāga Panchami / Hanuman Chalisa worship is the "
+                        "traditional remedy." if mangal_present else
+                        "No Kuja affliction detected."),
+    }
+
+    # ---------------------------- Kaal Sarp -------------------------------
+    # Canonical rule: Rahu and Ketu split the zodiac into two 180° arcs.
+    # The dosha exists when ALL seven physical grahas lie on the arc that runs
+    # forward from Rahu to Ketu (planets conjunct either node sign count as
+    # being *on* the axis, hence hemmed).  Any graha in the opposite
+    # (Ketu → Rahu) gap breaks the yoga.
+    rahu_l, ketu_l = rahu.sidereal_longitude, ketu.sidereal_longitude
+    arc_len = norm360(ketu_l - rahu_l)              # length of Rahu→Ketu arc
+    breakers: List[str] = []
+    for p in planets:
+        if not p.is_graha:
+            continue
+        d_from_rahu = norm360(p.sidereal_longitude - rahu_l)
+        on_axis_sign = p.sign_index in (rahu.sign_index, ketu.sign_index)
+        on_hemmed_arc = d_from_rahu <= arc_len      # inclusive of both nodes
+        if not (on_axis_sign or on_hemmed_arc):
+            breakers.append(p.name)                 # sits in the empty gap
+    kaal_sarp_present = len(breakers) == 0
+    # Which type?  Named by the sign Rahu occupies.
+    kaal_type = KAAL_SARP_TYPES.get(rahu.sign_index - 1, "Unknown")
+    kaal_sarp = {
+        "dosha": "Kaal Sarp Dosha",
+        "present": bool(kaal_sarp_present),
+        "type": kaal_type if kaal_sarp_present else None,
+        "rahu_sign": rahu.sign,
+        "ketu_sign": ketu.sign,
+        "axis_signs": [RASI_NAMES[rahu.sign_index - 1],
+                       RASI_NAMES[ketu.sign_index - 1]],
+        "breakers": sorted(set(breakers)),
+        "remedy_hint": ("Naga Puja / Mahashivratri observance is traditional."
+                        if kaal_sarp_present else
+                        "Not a Kaal Sarp yoga — planets are not fully hemmed."),
+    }
+
+    # ----------------------------- Sade Sati ------------------------------
+    # Natal reference data; the *live* phase is attached by main.py using
+    # sade_sati_status() with the current date.
+    moon_sign = moon.sign_index                       # 1..12
+    sade_sati = {
+        "dosha": "Sade Sati (Saturn's 7.5-year transit over the natal Moon)",
+        "moon_sign": moon.sign,
+        "moon_sign_index": moon_sign,
+        "phases": [
+            {"phase": "Phase 1 — Janma (rising)",
+             "transit_sign_index": ((moon_sign - 2) % 12) + 1,
+             "transit_sign": RASI_NAMES[(moon_sign - 2) % 12],
+             "description": "Saturn transits the 12th house from the Moon."},
+            {"phase": "Phase 2 — Peak",
+             "transit_sign_index": moon_sign,
+             "transit_sign": RASI_NAMES[moon_sign - 1],
+             "description": "Saturn transits the Moon's own sign."},
+            {"phase": "Phase 3 — Setting",
+             "transit_sign_index": (moon_sign % 12) + 1,
+             "transit_sign": RASI_NAMES[moon_sign % 12],
+             "description": "Saturn transits the 2nd house from the Moon."},
+        ],
+        "natal_saturn_relative_to_moon": _rel_house(moon_sign, saturn.sign_index),
+        "active": None,          # filled in by main.py / sade_sati_status()
+        "note": ("'active' compares Saturn's real-time transit sign against "
+                 "the three phase signs above."),
+    }
+
+    summary = {
+        "mangal_dosha": mangal,
+        "kaal_sarp_dosha": kaal_sarp,
+        "sade_sati": sade_sati,
+        "checked_at_module": "vedic_core v2.0",
+    }
+    return summary
+
+
+def jd_now_default() -> float:
+    """Julian Day UT for the present instant (used when caller passes None)."""
+    import datetime as _dt
+    now = _dt.datetime.now(_dt.timezone.utc)
+    return swe.julday(now.year, now.month, now.day,
+                      now.hour + now.minute / 60.0 + now.second / 3600.0)
+
+
+def sade_sati_status(moon_sign_index: int, jd_now: Optional[float] = None,
+                     ephe_path: Optional[str] = None,
+                     ayanamsa: str = "LAHIRI") -> Dict:
+    """Live Sade Sati check: Saturn's *actual* current transit sign vs. the
+    three phase signs (12th / 1st / 2nd from the natal Moon).
+
+    Uses a throwaway :class:`VedicCalculator` so the caller never has to keep
+    one around; safe to call on every request.  ``ayanamsa`` must match the
+    chart it is being compared against, otherwise sidereal signs shift.
+    """
+    if jd_now is None:
+        jd_now = jd_now_default()
+    probe = VedicCalculator(ephe_path=ephe_path, ayanamsa=ayanamsa)
+    lam, spd = probe._calc(jd_now, swe.SATURN)
+    sign_idx, deg = deg_in_sign(lam)
+    rel_to_moon = _rel_house(moon_sign_index, sign_idx)
+    active = rel_to_moon in (12, 1, 2)
+    phase_names = {12: "Phase 1 — Janma (rising)",
+                   1: "Phase 2 — Peak",
+                   2: "Phase 3 — Setting"}
+    return {
+        "saturn_transit_sign_index": sign_idx,
+        "saturn_transit_sign": RASI_NAMES[sign_idx - 1],
+        "saturn_transit_degree_dms": dms(deg),
+        "saturn_house_from_natal_moon": rel_to_moon,
+        "active": bool(active),
+        "active_phase": phase_names.get(rel_to_moon) if active else None,
+        "evaluated_jd_ut": round(jd_now, 5),
+        "evaluated_date_ut": jd_to_datetime(jd_now),
+    }
