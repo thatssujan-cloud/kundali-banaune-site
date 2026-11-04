@@ -38,6 +38,8 @@ License: MIT
 from __future__ import annotations
 
 import math
+import os
+import threading
 from dataclasses import asdict, dataclass
 from typing import Dict, List, Optional, Tuple
 
@@ -126,6 +128,14 @@ AYANAMSA_MODES: Dict[str, int] = {
 
 CANONICAL_ORDER = ["Sun", "Moon", "Mars", "Mercury", "Jupiter",
                    "Venus", "Saturn", "Rahu", "Ketu"]
+
+# Serialises every Swiss-Ephemeris computation across calculator instances.
+# ``swe.set_sid_mode`` / ``swe.set_ephe_path`` mutate *process-global* state,
+# so concurrent requests using different ayanamsas would otherwise corrupt
+# each other's charts mid-computation (observed in load tests: Lahiri charts
+# returned with another ayanamsa's values).  A chart takes ~5 ms; serialising
+# is cheap and makes results deterministic.
+_SWE_LOCK = threading.RLock()
 
 
 # ---------------------------------------------------------------------------
@@ -287,12 +297,29 @@ class VedicCalculator:
                           files; ``None`` keeps the process-wide path.
         :param ayanamsa:  key of :data:`AYANAMSA_MODES`; default **LAHIRI**.
         :param node_type: ``MEAN`` (Parashari) or ``TRUE`` (KP) for Rahu.
+
+        Thread-safety note: Swiss Ephemeris keeps the sidereal mode and the
+        ephemeris path in *process-global* state.  Constructing a calculator
+        mutates that global state, so every computation re-asserts this
+        instance's ayanamsa under a lock (:meth:`_compute_locked`).  That makes
+        concurrent FastAPI requests with different ayanamsas produce correct,
+        deterministic charts.
         """
         if ephe_path:
-            swe.set_ephe_path(ephe_path)
+            # Resolve to an absolute path so charts never depend on the
+            # server's current working directory (uvicorn launched from
+            # anywhere, container WORKDIRs, systemd units, …).
+            swe.set_ephe_path(os.path.abspath(ephe_path))
+        self.ephe_path = os.path.abspath(ephe_path) if ephe_path else None
         self.ayanamsa_name = ayanamsa.upper()
-        swe.set_sid_mode(AYANAMSA_MODES.get(self.ayanamsa_name, swe.SIDM_LAHIRI))
+        self._sid_mode = AYANAMSA_MODES.get(self.ayanamsa_name, swe.SIDM_LAHIRI)
         self.node_type = node_type.upper()
+        swe.set_sid_mode(self._sid_mode)
+
+        # One engine-wide lock: serialises the set_sid_mode → calc sequence so
+        # per-request ayanamsa switches can never interleave mid-chart.
+        # A chart takes ~5 ms, so throughput stays far above real-world load.
+        self._lock = _SWE_LOCK
 
         # Probe once whether full-precision JPL files are reachable so we can
         # report provenance in the API payload.
@@ -354,7 +381,21 @@ class VedicCalculator:
         """Compute the complete natal chart as a JSON-serialisable dict.
 
         See ``API_SCHEMA.md`` for the documented response contract.
+
+        Thread-safe: re-asserts this instance's sidereal mode under the shared
+        Swiss-Ephemeris lock before computing, so concurrent requests that use
+        different ayanamsas can never cross-contaminate each other.
         """
+        with self._lock:
+            swe.set_sid_mode(self._sid_mode)
+            if self.ephe_path:
+                swe.set_ephe_path(self.ephe_path)
+            return self._compute_chart(date, time, tz_offset_hours,
+                                       latitude, longitude)
+
+    def _compute_chart(self, date: str, time: str, tz_offset_hours: float,
+                       latitude: float, longitude: float) -> Dict:
+        """Inner (unlocked) chart computation — call via :meth:`compute_chart`."""
         jd = self.julday(date, time, tz_offset_hours)
         ay = self.ayanamsa(jd)
 
@@ -758,7 +799,8 @@ def sade_sati_status(moon_sign_index: int, jd_now: Optional[float] = None,
     if jd_now is None:
         jd_now = jd_now_default()
     probe = VedicCalculator(ephe_path=ephe_path, ayanamsa=ayanamsa)
-    lam, spd = probe._calc(jd_now, swe.SATURN)
+    with probe._lock:                      # same global-state guarantee
+        lam, spd = probe._calc(jd_now, swe.SATURN)
     sign_idx, deg = deg_in_sign(lam)
     rel_to_moon = _rel_house(moon_sign_index, sign_idx)
     active = rel_to_moon in (12, 1, 2)
