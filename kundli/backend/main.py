@@ -23,6 +23,7 @@ Deploy free on Render/Railway — see DEPLOYMENT.md at repo root.
 from __future__ import annotations
 
 import os
+from datetime import date as _date, datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -107,10 +108,9 @@ class BirthData(BaseModel):
         parts = v.split("-")
         try:
             y, m, d = int(parts[0]), int(parts[1]), int(parts[2])
+            datetime.date(y, m, d)          # real-calendar check (rejects 2025-02-30)
         except (ValueError, IndexError):
-            raise ValueError("date_of_birth must be 'YYYY-MM-DD'")
-        if not (1 <= m <= 12 and 1 <= d <= 31):
-            raise ValueError("date_of_birth out of range")
+            raise ValueError("date_of_birth must be a valid 'YYYY-MM-DD' date")
         return v
 
     @field_validator("time_of_birth")
@@ -173,6 +173,13 @@ def _compute(b: BirthData) -> dict:
             date=b.date_of_birth, time=b.time_of_birth,
             tz_offset_hours=b.timezone_offset_hours,
             latitude=b.latitude, longitude=b.longitude)
+    except HTTPException:
+        raise
+    except ValueError as exc:
+        # Bad-but-parseable input (e.g. impossible calendar dates rejected by
+        # Swiss Ephemeris): tell the client, don't 500.
+        raise HTTPException(status_code=422,
+                            detail=f"invalid birth data: {exc}") from exc
     except Exception as exc:  # pragma: no cover - defensive
         raise HTTPException(status_code=500,
                             detail=f"ephemeris error: {exc}") from exc
@@ -192,6 +199,11 @@ def _compute(b: BirthData) -> dict:
         result["doshas"]["sade_sati"].update(live)
     except Exception:  # pragma: no cover - transit check must never break API
         pass
+
+    # Server clock so the dashboard can highlight the *current* dasha/ad
+    # without trusting (skewed) client time; also useful for cache busting.
+    result["meta"]["server_time_utc"] = \
+        datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
     return result
 
 
@@ -274,14 +286,25 @@ def index():
 
 @app.get("/assets/{path}", include_in_schema=False)
 def assets(path: str):
-    f = (FRONTEND_DIST / "assets" / path).resolve()
-    if not str(f).startswith(str(FRONTEND_DIST)) or not f.exists():
+    dist = FRONTEND_DIST.resolve()
+    f = (dist / "assets" / path).resolve()
+    # is_relative_to blocks ../ traversal (the old startswith check was
+    # spoofable by sibling dirs sharing a path prefix).
+    if not f.is_relative_to(dist) or not f.exists():
         raise HTTPException(404)
     return FileResponse(f)
 
 
+# ---------------------------------------------------------------------------
+# Production entrypoint: bind the ASGI app to `app` so Render/Railway/Fly
+# auto-detection (`start: python main.py`) and gunicorn/uvicorn workers
+# (`uvicorn main:app`) both work out of the box.
+# ---------------------------------------------------------------------------
+app_asgi = app
+
 if __name__ == "__main__":  # `python main.py` → uvicorn on $PORT (Render style)
     import uvicorn
 
-    uvicorn.run("main:app", host="0.0.0.0",
-                port=int(os.environ.get("PORT", 8000)), reload=False)
+    uvicorn.run(app, host="0.0.0.0",
+                port=int(os.environ.get("PORT", 8000)), reload=False,
+                log_level=os.environ.get("KUNDALI_LOG_LEVEL", "info").lower())
