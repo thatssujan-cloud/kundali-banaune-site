@@ -148,8 +148,28 @@ def nakshatra_of(longitude: float) -> Tuple[int, int, float]:
 
 
 def nak_lord(nak_1_based: int) -> str:
-    """Vimshottari lord of nakshatra number 1..27."""
-    return VIMSHOTTARI_ORDER[(nak_1_based - 1) // 4]
+    """Vimshottari lord of nakshatra number 1..27.
+
+    The 120-year Vimshottari wheel assigns **three consecutive nakshatras to
+    each of the nine lords** (27 ÷ 9 = 3):
+
+        Ketu     → Ashwini, Bharani, Krittika      (1–3)
+        Venus    → Rohini, Mrigashira, Ardra       (4–6)
+        Sun      → Punarvasu, Pushya, Ashlesha     (7–9)
+        Moon     → Magha, P.Phalguni, U.Phalguni   (10–12)
+        Mars     → Hasta, Chitra, Swati            (13–15)
+        Rahu     → Vishakha, Anuradha, Jyeshtha    (16–18)
+        Jupiter  → Mula, P.Ashadha, U.Ashadha      (19–21)
+        Saturn   → Shravana, Dhanishta, Shatabhisha(22–24)
+        Mercury  → P.Bhadrapada, U.Bhadrapada, Revati (25–27)
+
+    Historical bug note: this function previously divided by 4 (a *pada*
+    count) instead of 3, which shifted every lord past nakshatra 3 and made
+    e.g. Revati (27) report Jupiter instead of Mercury.
+    """
+    if not 1 <= nak_1_based <= 27:
+        raise ValueError(f"nakshatra index out of range: {nak_1_based}")
+    return VIMSHOTTARI_ORDER[(nak_1_based - 1) // 3]
 
 
 def dms(deg: float) -> str:
@@ -283,6 +303,16 @@ class VedicCalculator:
         return norm360(ascmc[0])
 
     # -- public API ----------------------------------------------------------
+
+    @staticmethod
+    def navamsa_sign(d1_sign_index: int, deg_in_sign: float) -> int:
+        """Navamsa (D-9) rasi index 1..12 for a planet.
+
+        Each sign divides into nine 3°20' arcs; the arc's ruler advances one
+        sign at a time from the base sign itself (movable bases stay movable,
+        etc.), which is exactly ``base + floor(deg / 3°20')`` mod 12.
+        """
+        return ((d1_sign_index - 1 + int(deg_in_sign // PADA_SPAN)) % 12) + 1
 
     def compute_chart(self, date: str, time: str, tz_offset_hours: float,
                       latitude: float, longitude: float) -> Dict:
