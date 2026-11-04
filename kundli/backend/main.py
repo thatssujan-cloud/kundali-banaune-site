@@ -31,7 +31,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field, field_validator
 
-from vedic_core import VedicCalculator, AYANAMSA_MODES
+from vedic_core import VedicCalculator, AYANAMSA_MODES, sade_sati_status
 
 BASE_DIR = Path(__file__).resolve().parent
 EPHE_PATH = os.environ.get("KUNDALI_EPHE_PATH", str(BASE_DIR / "ephe"))
@@ -91,6 +91,16 @@ class BirthData(BaseModel):
                                                 "KRISHNAMURTI|DJWHALKHUL|TRUE_CHITRA")
     node_type: Optional[str] = Field("MEAN", description="MEAN (Parashari) or TRUE (KP)")
 
+    # ---- Dashboard v2 additions (all optional → old clients keep working) --
+    full_name: Optional[str] = Field(None, max_length=120,
+                                     description="Name shown on the dashboard header")
+    gender: Optional[str] = Field(None,
+                                  description="'male' | 'female' | 'other'")
+    city: Optional[str] = Field(None, max_length=120,
+                                description="Birth place label echoed back to the UI")
+    chart_style: Optional[str] = Field("NORTH",
+                                       description="NORTH (diamond) | SOUTH (square grid)")
+
     @field_validator("date_of_birth")
     @classmethod
     def _check_date(cls, v: str) -> str:
@@ -133,6 +143,24 @@ class BirthData(BaseModel):
             raise ValueError("node_type must be MEAN or TRUE")
         return v
 
+    @field_validator("gender")
+    @classmethod
+    def _check_gender(cls, v: Optional[str]) -> Optional[str]:
+        if v is None or v.strip() == "":
+            return None
+        v = v.lower()
+        if v not in {"male", "female", "other"}:
+            raise ValueError("gender must be male, female or other")
+        return v
+
+    @field_validator("chart_style")
+    @classmethod
+    def _check_chart_style(cls, v: Optional[str]) -> str:
+        v = (v or "NORTH").upper()
+        if v not in {"NORTH", "SOUTH"}:
+            raise ValueError("chart_style must be NORTH or SOUTH")
+        return v
+
 
 def _compute(b: BirthData) -> dict:
     """Dispatch to a calculator configured with the request's options."""
@@ -141,13 +169,30 @@ def _compute(b: BirthData) -> dict:
         calc = VedicCalculator(ephe_path=EPHE_PATH, ayanamsa=b.ayanamsa,
                                node_type=b.node_type)
     try:
-        return calc.compute_chart(
+        result = calc.compute_chart(
             date=b.date_of_birth, time=b.time_of_birth,
             tz_offset_hours=b.timezone_offset_hours,
             latitude=b.latitude, longitude=b.longitude)
     except Exception as exc:  # pragma: no cover - defensive
         raise HTTPException(status_code=500,
                             detail=f"ephemeris error: {exc}") from exc
+
+    # ---- enrich the payload for the dashboard -----------------------------
+    result["meta"]["api_version"] = "2.0"
+    result["input"]["full_name"] = b.full_name
+    result["input"]["gender"] = b.gender
+    result["input"]["birth_place"] = b.city
+    result["meta"]["chart_style"] = b.chart_style
+
+    # Live Sade Sati transit status against the natal Moon sign.
+    try:
+        live = sade_sati_status(
+            moon_sign_index=result["moon_nakshatra"]["sign_index"],
+            ephe_path=EPHE_PATH, ayanamsa=b.ayanamsa)
+        result["doshas"]["sade_sati"].update(live)
+    except Exception:  # pragma: no cover - transit check must never break API
+        pass
+    return result
 
 
 # ---------------------------------------------------------------------------
