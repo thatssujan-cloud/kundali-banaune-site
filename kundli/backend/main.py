@@ -4,13 +4,20 @@ main.py — FastAPI backend for the Vedic Kundali (natal chart) module.
 
 Endpoints
 ---------
-GET  /api/health              Liveness + ephemeris provenance.
-POST /api/v1/kundali/chart    Compute a full natal chart (JSON).
-GET  /api/v1/kundali/chart    Same, via query parameters (handy for curl/tests).
-GET  /                        Serves the React demo app (built or dev-shim).
+GET  /api/health                    Liveness + ephemeris provenance.
+POST /api/generate-kundali          PRIMARY endpoint used by the GitHub-Pages
+                                    frontend (index.html) — JSON birth data in,
+                                    complete kundali JSON out.
+POST /api/v1/kundali/chart          Alias of the above (versioned route).
+GET  /api/v1/kundali/chart          Same, via query parameters (curl-friendly).
+GET  /                              Serves the single-file frontend if present.
 
-Run:
+CORS is configured so that *.github.io origins (GitHub Pages) can call the API
+without cross-origin issues; set KUNDALI_CORS_ORIGINS to lock it down in prod.
+
+Run locally:
     uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+Deploy free on Render/Railway — see DEPLOYMENT.md at repo root.
 """
 
 from __future__ import annotations
@@ -29,6 +36,12 @@ from vedic_core import VedicCalculator, AYANAMSA_MODES
 BASE_DIR = Path(__file__).resolve().parent
 EPHE_PATH = os.environ.get("KUNDALI_EPHE_PATH", str(BASE_DIR / "ephe"))
 FRONTEND_DIST = BASE_DIR.parent / "frontend" / "dist"
+# Single-file GitHub-Pages frontend.  Kept at repo root; when the backend is run
+# from `kundli/backend`, it lives two levels up (see path probe below).
+SINGLE_FILE_INDEX_CANDIDATES = [
+    BASE_DIR.parent.parent / "index.html",          # <repo>/index.html
+    BASE_DIR.parent / "frontend" / "index.html",    # legacy location
+]
 
 app = FastAPI(
     title="Vedic Kundali API",
@@ -38,7 +51,11 @@ app = FastAPI(
     version="1.0.0",
 )
 
-# CORS so the React dev-server (5173) can talk to us.
+# ---------------------------------------------------------------------------
+# CORS — GitHub Pages friendly.
+# Default "*" lets any *.github.io page fetch the API.  For production, set
+# KUNDALI_CORS_ORIGINS="https://<user>.github.io/kundali-banaune-site" to pin it.
+# ---------------------------------------------------------------------------
 app.add_middleware(
     CORSMiddleware,
     allow_origins=os.environ.get("KUNDALI_CORS_ORIGINS", "*").split(","),
@@ -149,9 +166,30 @@ def health() -> dict:
     }
 
 
+@app.post("/api/generate-kundali")
+def generate_kundali(body: BirthData) -> JSONResponse:
+    """PRIMARY endpoint consumed by the GitHub-Pages frontend (index.html).
+
+    Request body (JSON)::
+
+        {
+          "date_of_birth":         "1990-05-15",   # YYYY-MM-DD (local)
+          "time_of_birth":         "10:00:00",     # HH:MM:SS   (local wall clock)
+          "latitude":              28.6139,        # decimal deg, N positive
+          "longitude":             77.2090,        # decimal deg, E positive
+          "timezone_offset_hours": 5.5             # local offset from UTC
+        }
+
+    Response: full kundali JSON — see API_SCHEMA.md / the module docstring of
+    ``vedic_core.py`` for the contract (meta, input, lagna, planets[9],
+    vimshottari_dasha).
+    """
+    return JSONResponse(_compute(body))
+
+
 @app.post("/api/v1/kundali/chart")
 def chart_post(body: BirthData) -> JSONResponse:
-    """Primary API: POST JSON birth data → complete kundali JSON."""
+    """Versioned alias of :func:`generate_kundali` (kept for API consumers)."""
     return JSONResponse(_compute(body))
 
 
@@ -172,13 +210,21 @@ def chart_get(
     return JSONResponse(_compute(b))
 
 
-# Static demo frontend (built with `npm run build` into ../frontend/dist).
+# ---------------------------------------------------------------------------
+# Optional static hosting (useful for local one-box demos; GitHub Pages serves
+# index.html itself, so these routes are only a convenience).
+# ---------------------------------------------------------------------------
+
 @app.get("/", include_in_schema=False)
-def index() -> FileResponse:
+def index():
+    # 1) built React app, 2) single-file GitHub-Pages frontend.
     idx = FRONTEND_DIST / "index.html"
     if idx.exists():
         return FileResponse(idx)
-    return FileResponse(BASE_DIR.parent / "frontend" / "index.html")
+    for cand in SINGLE_FILE_INDEX_CANDIDATES:
+        if cand.exists():
+            return FileResponse(cand)
+    raise HTTPException(404, "frontend not found")
 
 
 @app.get("/assets/{path}", include_in_schema=False)
@@ -187,3 +233,10 @@ def assets(path: str):
     if not str(f).startswith(str(FRONTEND_DIST)) or not f.exists():
         raise HTTPException(404)
     return FileResponse(f)
+
+
+if __name__ == "__main__":  # `python main.py` → uvicorn on $PORT (Render style)
+    import uvicorn
+
+    uvicorn.run("main:app", host="0.0.0.0",
+                port=int(os.environ.get("PORT", 8000)), reload=False)
